@@ -263,14 +263,14 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant Loop as run_conversation
+    participant Conv as run_conversation
     participant CE as context_engine
     participant Ref as context_references
     participant Cmp as context_compressor
     participant LLM as Summarizer LLM
     participant MM as memory_manager
 
-    Loop->>CE: pre_flight(messages, model.context_window)
+    Conv->>CE: pre_flight(messages, model.context_window)
     CE->>CE: 估算 token，比较 threshold
 
     alt 超阈值
@@ -285,9 +285,9 @@ sequenceDiagram
             LLM-->>Cmp: 摘要节点
         end
         Cmp-->>CE: compressed messages
-        CE-->>Loop: 替换 messages
+        CE-->>Conv: 替换 messages
     else 未超
-        CE-->>Loop: pass-through
+        CE-->>Conv: pass-through
     end
 ```
 
@@ -362,26 +362,26 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant Loop as AIAgent loop
+    participant Conv as AIAgent loop
     participant Adp as ProviderAdapter
     participant Guard as nous_rate_guard
     participant Track as rate_limit_tracker
     participant Cls as error_classifier
     participant LLM
 
-    Loop->>Guard: pre_call(provider)
+    Conv->>Guard: pre_call(provider)
     Guard->>Track: 当前 RPM/TPM 已用?
     Track-->>Guard: usage
     alt 接近上限
-        Guard-->>Loop: sleep(jitter)
+        Guard-->>Conv: sleep(jitter)
     end
-    Loop->>Adp: stream(messages)
+    Conv->>Adp: stream(messages)
     Adp->>LLM: HTTP
 
     alt 200 OK
         LLM-->>Adp: stream
-        Adp-->>Loop: deltas
-        Loop->>Track: track(provider, usage_headers, cost)
+        Adp-->>Conv: deltas
+        Conv->>Track: track(provider, usage_headers, cost)
     else 429 / 5xx / network
         LLM-->>Adp: error
         Adp->>Cls: classify(exc)
@@ -390,8 +390,8 @@ sequenceDiagram
             Adp->>Adp: sleep(backoff)
             Adp->>LLM: 重试（最多 N 次）
         else 不可重试
-            Adp-->>Loop: raise
-            Loop->>Loop: 写入 trajectory + memory
+            Adp-->>Conv: raise
+            Conv->>Conv: 写入 trajectory + memory
         end
     end
 ```

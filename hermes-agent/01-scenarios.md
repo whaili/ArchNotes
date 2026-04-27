@@ -62,7 +62,7 @@ sequenceDiagram
     participant CLI as hermes_cli.main
     participant Cfg as Config_and_Setup
     participant Run as run_agent.AIAgent
-    participant Loop as run_conversation
+    participant Conv as run_conversation
     participant Adp as ProviderAdapter
     participant LLM as LLM_API
 
@@ -70,16 +70,16 @@ sequenceDiagram
     CLI->>Cfg: load env, model_catalog, tools_config
     CLI->>Run: AIAgent(model, tools, memory, ...)
     Run->>Run: 加载 MEMORY.md / USER.md / Skills
-    User->>Loop: 输入 prompt（curses_ui）
-    Loop->>Adp: build_messages + tools schema
+    User->>Conv: 输入 prompt（curses_ui）
+    Conv->>Adp: build_messages + tools schema
     Adp->>LLM: chat.completions / messages.create
     LLM-->>Adp: assistant + tool_calls
-    Adp-->>Loop: parsed response
-    Loop->>Loop: 执行 tool_calls（见 UC-03）
-    Loop->>Adp: 追加 tool_result，再次调用
+    Adp-->>Conv: parsed response
+    Conv->>Conv: 执行 tool_calls（见 UC-03）
+    Conv->>Adp: 追加 tool_result，再次调用
     LLM-->>Adp: 终态回复
-    Adp-->>Loop: final assistant text
-    Loop-->>User: 流式 token（stream_delta_callback）
+    Adp-->>Conv: final assistant text
+    Conv-->>User: 流式 token（stream_delta_callback）
 ```
 
 ---
@@ -123,7 +123,7 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant Loop as run_conversation
+    participant Conv as run_conversation
     participant Reg as tools.registry
     participant Tool as ToolHandler
     participant Sec as Guards
@@ -131,7 +131,7 @@ sequenceDiagram
     participant Env as TerminalBackend
     participant Store as tool_result_storage
 
-    Loop->>Reg: dispatch(tool_name, args)
+    Conv->>Reg: dispatch(tool_name, args)
     Reg->>Sec: 校验路径 / URL / 权限
     Sec-->>Reg: pass / approval_required
     Reg->>Tool: invoke(args)
@@ -145,7 +145,7 @@ sequenceDiagram
     end
     Tool-->>Reg: ToolResult
     Reg->>Store: 持久化大结果（OutputLimiter 截断）
-    Reg-->>Loop: tool_result（写回 messages）
+    Reg-->>Conv: tool_result（写回 messages）
 ```
 
 ---
@@ -220,25 +220,25 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant Loop
+    participant Conv
     participant CE as context_engine
     participant Est as token_estimator
     participant Cmp as context_compressor
     participant LLM
 
-    Loop->>CE: pre_flight(messages, threshold_tokens)
+    Conv->>CE: pre_flight(messages, threshold_tokens)
     CE->>Est: estimate(messages)
     Est-->>CE: total_tokens
 
     alt total_tokens 在阈值内
-        CE-->>Loop: pass-through
+        CE-->>Conv: pass-through
     else 超出阈值
         CE->>Cmp: build_dag(messages, protect_first_n, protect_last_n)
         Cmp->>Cmp: 识别工具调用簇 / 引用关系
         Cmp->>LLM: summarize(中段簇)
         LLM-->>Cmp: 压缩后摘要节点
         Cmp-->>CE: 压缩后 messages
-        CE-->>Loop: compressed messages
+        CE-->>Conv: compressed messages
     end
 ```
 
