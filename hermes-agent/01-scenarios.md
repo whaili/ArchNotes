@@ -59,12 +59,12 @@ flowchart LR
 ```mermaid
 sequenceDiagram
     actor User
-    participant CLI as hermes (hermes_cli/main.py)
-    participant Cfg as Config + Setup
+    participant CLI as hermes_cli.main
+    participant Cfg as Config_and_Setup
     participant Run as run_agent.AIAgent
-    participant Loop as run_conversation()
-    participant Adp as Provider Adapter
-    participant LLM as LLM API
+    participant Loop as run_conversation
+    participant Adp as ProviderAdapter
+    participant LLM as LLM_API
 
     User->>CLI: hermes
     CLI->>Cfg: load env, model_catalog, tools_config
@@ -123,12 +123,12 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant Loop as run_conversation()
-    participant Reg as tools/registry.py
+    participant Loop as run_conversation
+    participant Reg as tools.registry
     participant Tool as ToolHandler
-    participant Sec as path_security / url_safety
-    participant Term as terminal_tool.py
-    participant Env as TERMINAL_ENV backend
+    participant Sec as Guards
+    participant Term as terminal_tool
+    participant Env as TerminalBackend
     participant Store as tool_result_storage
 
     Loop->>Reg: dispatch(tool_name, args)
@@ -230,7 +230,7 @@ sequenceDiagram
     CE->>Est: estimate(messages)
     Est-->>CE: total_tokens
 
-    alt total_tokens < threshold
+    alt total_tokens 在阈值内
         CE-->>Loop: pass-through
     else 超出阈值
         CE->>Cmp: build_dag(messages, protect_first_n, protect_last_n)
