@@ -8,51 +8,43 @@
 
 > 适用于单机自托管场景（小团队 / 快速启动）
 
-```plantuml
-@startuml Physical-DockerCompose
-skinparam nodeStyle rectangle
+```mermaid
+flowchart TB
+    Client(["🖥️ Client App"])
+    AdminUI(["🖥️ Admin Browser"])
 
-node "Docker Host (单机)" {
+    subgraph DockerHost["Docker Host（单机）"]
+        subgraph LC["litellm Container :4000"]
+            API["FastAPI + Uvicorn\nproxy_server.py"]
+            SCHED["APScheduler\n后台 Jobs"]
+            SDK2["LiteLLM SDK\nlitellm/"]
+        end
 
-  node "litellm Container\n:4000" as LC {
-    component "FastAPI + Uvicorn\n(proxy_server.py)" as API
-    component "APScheduler\n(后台 Jobs)" as SCHED
-    component "LiteLLM SDK\n(litellm/)" as SDK
-  }
+        subgraph PG["PostgreSQL Container :5432"]
+            PGDB[("litellm DB\nkeys / teams / spend_logs")]
+        end
 
-  node "PostgreSQL Container\n:5432" as PG {
-    database "litellm DB\n(keys, teams, spend_logs)" as PGDB
-  }
+        subgraph PROM["Prometheus Container :9090"]
+            MS["Metrics Scraper"]
+        end
 
-  node "Prometheus Container\n:9090" as PROM {
-    component "Metrics Scraper" as MS
-  }
+        PGVOL[/"postgres_data volume"/]
+        PROMVOL[/"prometheus_data volume"/]
+    end
 
-  volume "postgres_data" as PGVOL
-  volume "prometheus_data" as PROMVOL
-}
+    subgraph External["External"]
+        PROVIDERS["☁️ LLM Providers\nOpenAI / Anthropic / Bedrock / Azure"]
+        REDIS_EXT[("Redis（可选）")]
+    end
 
-cloud "External LLM Providers" as PROVIDERS {
-  component "OpenAI API"
-  component "Anthropic API"
-  component "Bedrock / Vertex AI"
-  component "Azure OpenAI"
-}
-
-cloud "Optional Redis\n(External)" as REDIS
-
-actor "Client App" as CLIENT
-actor "Admin UI" as ADMIN_UI
-
-CLIENT --> LC : HTTP :4000\n/v1/chat/completions
-ADMIN_UI --> LC : HTTP :4000\n/ui (React SPA)
-LC --> PG : TCP :5432\nPrisma Client
-LC --> REDIS : TCP :6379\n(Redis optional)
-LC --> PROVIDERS : HTTPS (outbound)
-PROM --> LC : GET :4000/metrics
-PG --> PGVOL
-PROM --> PROMVOL
-@enduml
+    Client -->|HTTP :4000| LC
+    AdminUI -->|HTTP :4000/ui| LC
+    LC -->|TCP :5432 Prisma| PGDB
+    LC -->|TCP :6379 optional| REDIS_EXT
+    LC -->|HTTPS outbound| PROVIDERS
+    MS -->|GET :4000/metrics| LC
+    PGDB --- PGVOL
+    MS --- PROMVOL
 ```
 
 ---
@@ -61,200 +53,137 @@ PROM --> PROMVOL
 
 > 适用于企业级高可用场景
 
-```plantuml
-@startuml Physical-K8s
-skinparam nodeStyle rectangle
+```mermaid
+flowchart TB
+    Clients(["🌐 Clients"])
 
-cloud "Kubernetes Cluster" {
+    subgraph K8s["Kubernetes Cluster"]
+        subgraph Ingress["Ingress / Load Balancer"]
+            LB["nginx-ingress / AWS ALB"]
+        end
 
-  node "Ingress / Load Balancer" as ING {
-    component "nginx-ingress\n/ AWS ALB" as LB
-  }
+        subgraph Deploy["litellm-proxy Deployment（ReplicaSet）"]
+            P1["Pod 1\nlitellm-proxy :4000"]
+            P2["Pod 2\nlitellm-proxy :4000"]
+            PN["Pod N\n（HPA 自动扩缩）"]
+        end
 
-  node "litellm-proxy Deployment\n(ReplicaSet)" as DEPLOY {
-    node "Pod 1" {
-      component "litellm-proxy\n:4000" as P1
-    }
-    node "Pod 2" {
-      component "litellm-proxy\n:4000" as P2
-    }
-    node "Pod N\n(HPA)" {
-      component "litellm-proxy\n:4000" as PN
-    }
-  }
+        subgraph Data["Data Tier"]
+            PGS[("PostgreSQL StatefulSet\n或 RDS / Cloud SQL")]
+            REDIS_K8S[("Redis StatefulSet\n或 ElastiCache")]
+        end
 
-  node "PostgreSQL StatefulSet\n(或 RDS / Cloud SQL)" as PGSS {
-    database "litellm-db" as PGD
-  }
+        subgraph Monitor["Monitoring Namespace"]
+            PROM2["Prometheus"]
+            GRAF["Grafana"]
+            ALERT["AlertManager"]
+        end
 
-  node "Redis StatefulSet\n(或 ElastiCache)" as REDIS {
-    database "litellm-cache" as RD
-  }
+        subgraph Secrets["Secret Store\nVault / k8s Secret"]
+            CREDS["API Keys\nDB Credentials"]
+        end
+    end
 
-  node "Monitoring Namespace" {
-    component "Prometheus" as PROM
-    component "Grafana" as GRAF
-    component "AlertManager" as ALERT
-  }
+    subgraph ExtSvc["External Services"]
+        LLMS2["☁️ LLM Providers"]
+        OBS["Observability SaaS\nDatadog / Langfuse"]
+    end
 
-  node "Secret Store\n(Vault / k8s Secret)" as SEC {
-    component "API Keys\nDB Credentials" as CREDS
-  }
-
-  ING --> P1
-  ING --> P2
-  ING --> PN
-
-  P1 --> PGD
-  P2 --> PGD
-  PN --> PGD
-
-  P1 --> RD
-  P2 --> RD
-  PN --> RD
-
-  P1 --> SEC
-  P2 --> SEC
-
-  PROM --> P1
-  PROM --> P2
-  GRAF --> PROM
-  ALERT --> PROM
-}
-
-cloud "External LLM Providers" as EXT
-cloud "Observability SaaS\n(Langfuse / Datadog / Slack)" as OBS
-
-P1 --> EXT : HTTPS (egress)
-P2 --> EXT : HTTPS (egress)
-P1 --> OBS : async callbacks
-P2 --> OBS : async callbacks
-
-actor "Clients" as C
-C --> ING : HTTPS :443
-@enduml
+    Clients -->|HTTPS :443| LB
+    LB --> P1 & P2 & PN
+    P1 & P2 & PN --> PGS
+    P1 & P2 & PN --> REDIS_K8S
+    P1 & P2 & PN --> CREDS
+    PROM2 --> P1 & P2 & PN
+    GRAF --> PROM2
+    ALERT --> PROM2
+    P1 & P2 & PN -->|HTTPS egress| LLMS2
+    P1 & P2 & PN -->|async callbacks| OBS
 ```
 
 ---
 
-## 3. 云托管架构（AWS 参考）
+## 3. AWS 云托管架构
 
-```plantuml
-@startuml Physical-AWS
-skinparam nodeStyle rectangle
+```mermaid
+flowchart TB
+    C(["🌐 Clients"])
 
-cloud "AWS Cloud" {
+    subgraph VPC["AWS VPC"]
+        subgraph PubNet["Public Subnet"]
+            ALB["ALB\nApplication Load Balancer"]
+        end
 
-  node "VPC" {
+        subgraph AppNet["Private Subnet — App Tier"]
+            subgraph ECS["ECS Fargate / EKS"]
+                TASK["litellm-proxy Tasks（多副本）"]
+            end
+        end
 
-    node "Public Subnet" {
-      component "ALB\n(Application Load Balancer)" as ALB
-    }
+        subgraph DataNet["Private Subnet — Data Tier"]
+            RDS[("RDS PostgreSQL\nMulti-AZ")]
+            EC[("ElastiCache Redis\nCluster Mode")]
+        end
 
-    node "Private Subnet - App Tier" {
-      node "ECS Fargate / EKS" {
-        component "litellm-proxy Task\n(多副本)" as ECS
-      }
-    }
+        subgraph AwsSvc["AWS Services"]
+            SM["Secrets Manager\nAPI Keys"]
+            CW["CloudWatch\nLogs + Metrics"]
+            S3[("S3\nLLM Response Cache")]
+        end
+    end
 
-    node "Private Subnet - Data Tier" {
-      database "RDS PostgreSQL\n(Multi-AZ)" as RDS
-      database "ElastiCache Redis\n(Cluster Mode)" as EC
-    }
+    subgraph ExtCloud["External"]
+        LLMS3["☁️ LLM Providers\nOpenAI / Bedrock / Anthropic"]
+        OBS2["Observability\nDatadog / Langfuse"]
+    end
 
-    node "AWS Services" {
-      component "Secrets Manager\n(API Keys)" as SM
-      component "CloudWatch\n(Logs + Metrics)" as CW
-      component "S3\n(LLM Response Cache)" as S3
-    }
-  }
-}
-
-cloud "LLM Providers\n(OpenAI / Bedrock / Anthropic)" as LLMS
-cloud "Observability\n(Datadog / Langfuse)" as OBS
-actor "Client" as C
-
-C --> ALB : HTTPS :443
-ALB --> ECS : HTTP :4000
-ECS --> RDS : TCP :5432
-ECS --> EC : TCP :6379
-ECS --> SM : HTTPS (get secrets)
-ECS --> S3 : HTTPS (cache)
-ECS --> CW : logs/metrics
-ECS --> LLMS : HTTPS (egress)
-ECS --> OBS : HTTPS (async)
-@enduml
+    C -->|HTTPS :443| ALB
+    ALB -->|HTTP :4000| TASK
+    TASK --> RDS
+    TASK --> EC
+    TASK --> SM
+    TASK --> S3
+    TASK --> CW
+    TASK -->|HTTPS egress| LLMS3
+    TASK -->|HTTPS async| OBS2
 ```
 
 ---
 
-## 4. 节点职责说明
+## 4. 节点职责与内部组件
 
-```plantuml
-@startuml Physical-Responsibilities
+```mermaid
+flowchart LR
+    subgraph ProxyNode["LiteLLM Proxy Node"]
+        FASTAPI["FastAPI\nHTTP Server\n接收请求 / 认证 / 路由 / 响应"]
+        SCHED2["APScheduler\nupdate_spend 60s\nreset_budget 10min\nhealth_check continuous\nrotate_keys 1hr"]
+        SDK3["LiteLLM SDK\nProvider 协议转换\n流式响应\n成本计算\n缓存查询"]
+        RC["Redis Client\ncaching/redis_cache.py"]
+        PC["Prisma Client\nDB ORM"]
+    end
 
-package "LiteLLM Proxy Node" {
-  component "FastAPI\n(HTTP Server)" as FASTAPI
-  component "APScheduler\n后台任务" as SCHED
-  component "LiteLLM SDK\n(Provider Adapters)" as SDK
-  component "Redis Client\n(caching/redis_cache.py)" as RC
-  component "Prisma Client\n(DB ORM)" as PC
-}
+    subgraph RedisNode["Redis Node"]
+        AKC[("API Key Cache")]
+        RTC[("RPM/TPM Counters")]
+        SQ[("Spend Queue")]
+        DC2[("Deployment Cooldowns")]
+        LRC[("LLM Response Cache")]
+    end
 
-note right of FASTAPI
-  - 接收 OpenAI 格式请求
-  - 认证 + 限流
-  - 路由 + 调用 SDK
-  - 返回响应 + 写 headers
-end note
+    subgraph PGNode["PostgreSQL Node"]
+        VT[("VerificationToken\nVirtual Keys")]
+        TT[("TeamTable")]
+        UT[("UserTable")]
+        SL[("SpendLogs")]
+        MT[("ProxyModelTable")]
+    end
 
-note right of SCHED
-  - update_spend (60s)
-  - reset_budget (10-12min)
-  - add_deployment (10s)
-  - health_check (continuous)
-  - rotate_keys (1hr)
-end note
-
-note right of SDK
-  - Provider 协议转换
-  - 流式响应处理
-  - 成本计算
-  - 缓存查询/存储
-end note
-
-package "Redis Node" {
-  database "API Key Cache" as AKC
-  database "RPM/TPM Counters" as RTC
-  database "Spend Queue" as SQ
-  database "Deployment Cooldowns" as DC
-  database "LLM Response Cache" as LRC
-}
-
-package "PostgreSQL Node" {
-  database "LiteLLM_VerificationToken\n(Virtual Keys)" as VT
-  database "LiteLLM_TeamTable" as TT
-  database "LiteLLM_UserTable" as UT
-  database "LiteLLM_SpendLogs" as SL
-  database "LiteLLM_ProxyModelTable" as MT
-  database "LiteLLM_OrganizationTable" as OT
-}
-
-FASTAPI --> RC : key auth cache
-FASTAPI --> PC : key lookup (cache miss)
-SCHED --> PC : batch spend writes
-SDK --> RC : response cache + TPM/RPM
-PC --> VT
-PC --> TT
-PC --> UT
-PC --> SL
-PC --> MT
-RC --> AKC
-RC --> RTC
-RC --> SQ
-RC --> DC
-RC --> LRC
-@enduml
+    FASTAPI --> RC
+    FASTAPI --> PC
+    SCHED2 --> PC
+    SDK3 --> RC
+    PC --> VT & TT & UT & SL & MT
+    RC --> AKC & RTC & SQ & DC2 & LRC
 ```
 
 ---
@@ -263,7 +192,7 @@ RC --> LRC
 
 | 方向 | 源 | 目标 | 端口 | 协议 | 说明 |
 |------|-----|------|------|------|------|
-| Inbound | Client | LiteLLM Proxy | 4000 | HTTP/HTTPS | API 请求 |
+| Inbound | Client App | LiteLLM Proxy | 4000 | HTTP/HTTPS | API 请求 |
 | Inbound | Admin Browser | LiteLLM Proxy | 4000/ui | HTTP/HTTPS | 管理 UI |
 | Inbound | Prometheus | LiteLLM Proxy | 4000/metrics | HTTP | 指标采集 |
 | Outbound | LiteLLM Proxy | PostgreSQL | 5432 | TCP | 持久化 |
@@ -275,55 +204,32 @@ RC --> LRC
 
 ---
 
-## 6. 扩展性与容灾特性
+## 6. 扩展性与高可用设计
 
-```plantuml
-@startuml Physical-Scalability
+```mermaid
+flowchart TB
+    subgraph StatelessProxy["水平扩展 — Stateless Proxy"]
+        I1["Proxy 实例 1"]
+        I2["Proxy 实例 2"]
+        IN["Proxy 实例 N\nHPA 自动扩缩"]
+        NOTE1["Proxy 无本地状态\nAPI Key 状态存 Redis\n账单数据存 PostgreSQL\n实例间不通信\n可无限水平扩展"]
+    end
 
-package "水平扩展 (Stateless Proxy)" {
-  component "Proxy 实例 1" as I1
-  component "Proxy 实例 2" as I2
-  component "Proxy 实例 N\n(HPA)" as IN
+    subgraph RedisHA["Redis 高可用"]
+        RP["Redis Primary"]
+        RR1["Redis Replica 1"]
+        RR2["Redis Replica 2"]
+        NOTE2["Redis Cluster Mode 支持\n分片存储 TPM/RPM 计数"]
+        RP -->|replication| RR1 & RR2
+    end
 
-  note right of IN
-    Proxy 无本地状态
-    - API Key 状态存 Redis
-    - 账单数据存 PostgreSQL
-    - 实例间不通信
-    可无限水平扩展
-  end note
-}
+    subgraph PGHA["PostgreSQL 高可用"]
+        PGP[("Primary\nRead/Write")]
+        PGS2[("Standby\nHot Standby")]
+        NOTE3["写操作 → Primary\n可配置 Read Replica\n分担查询压力"]
+        PGP -->|streaming replication| PGS2
+    end
 
-package "Redis 高可用" {
-  component "Redis Primary" as RP
-  component "Redis Replica 1" as RR1
-  component "Redis Replica 2" as RR2
-  RP --> RR1 : replication
-  RP --> RR2 : replication
-
-  note bottom
-    Redis Cluster Mode 支持
-    分片存储 TPM/RPM 计数
-  end note
-}
-
-package "PostgreSQL 高可用" {
-  database "Primary\n(Read/Write)" as PGP
-  database "Standby\n(Hot Standby)" as PGS
-  PGP --> PGS : streaming replication
-
-  note bottom
-    写操作 → Primary
-    可配置 Read Replica
-    分担查询压力
-  end note
-}
-
-I1 --> RP
-I2 --> RP
-IN --> RP
-I1 --> PGP
-I2 --> PGP
-IN --> PGP
-@enduml
+    I1 & I2 & IN --> RP
+    I1 & I2 & IN --> PGP
 ```
