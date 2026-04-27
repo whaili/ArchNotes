@@ -11,6 +11,7 @@
 | 过程视图 (Process) | [03-process.md](03-process.md) | 运行时交互、异步流程 |
 | 开发视图 (Development) | [04-development.md](04-development.md) | 模块/包组织、代码层次 |
 | 物理视图 (Physical) | [05-physical.md](05-physical.md) | 部署拓扑与基础设施 |
+| 应急缓解 (扩展) | [06-k8s-mitigation.md](06-k8s-mitigation.md) | AWS/K8s 部署下的容量评估、检测与自愈 |
 
 ## 系统简介
 
